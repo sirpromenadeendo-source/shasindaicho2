@@ -11470,21 +11470,22 @@ async function ocrAllBoards(){
   const btn=_d('btnOcrBoards'); if(btn){ btn.disabled=true; btn.textContent='⏳ 看板をOCR処理中…'; }
   _d('progressWrap').classList.add('show');
   let done=0, ok=0, fail=0;
+  try{
   for(const g of boards){
     setProgress(done, boards.length, `看板を手書きOCR中… (${done+1}/${boards.length})`);
     const p=photoById(g.qrPhotoId);
     let r=null;
     if(p){
       // 通信の一時的な失敗（混雑・回線）に備えて、失敗時は一度だけ間を置いて再試行
-      for(let attempt=0; attempt<2 && !r; attempt++){
+      for(let attempt=0; attempt<3 && !r; attempt++){
         try{
           const bmp=await loadBitmap(await fileOf(p));
           r=await ocrPhoto(bmp);   // クラウド優先→失敗時Tesseract
           try{ freeBitmap(bmp); }catch(e){}
         }catch(e){ console.warn('[ocrAllBoards]',e); }
-        if(!r && attempt===0){
+        if(!r && attempt<2){   // レート制限・回線の一時失敗に備え、間を空けて再試行
           setProgress(done, boards.length, `混雑のため再試行中… (${done+1}/${boards.length})`);
-          await new Promise(x=>setTimeout(x,1500));
+          await new Promise(x=>setTimeout(x, attempt===0?1500:3500));
         }
       }
     }
@@ -11513,8 +11514,10 @@ async function ocrAllBoards(){
     const pp=photoById(g.qrPhotoId); if(pp) pp.kanban=k;
   }
   setProgress(boards.length, boards.length, '完了');
-  setTimeout(()=>_d('progressWrap').classList.remove('show'),1000);
-  if(btn){ btn.disabled=false; btn.textContent='✍ 看板を手書きOCR'; }
+  }finally{
+    setTimeout(()=>_d('progressWrap').classList.remove('show'),1000);
+    if(btn){ btn.disabled=false; btn.textContent='✍ 看板を手書きOCR'; }
+  }
   refreshAll();
   let msg=`${boards.length}件の看板を手書きOCRしました。\n　対象1を読み取れた: ${ok}件`;
   if(fail) msg+=`\n　読み取れなかった: ${fail}件（「✍ 看板を手書きOCR」をもう一度押すと、未読の看板だけ再試行します）`;
@@ -12134,7 +12137,12 @@ function renderEditorChips(){
   const box=(key,el,cur,fn)=>{
     const node=_d(el);
     if(_masterEditing===key){ node.classList.add('editing'); node.innerHTML=chipHtmlEdit(key); }
-    else { node.classList.remove('editing'); node.innerHTML=chipHtml(KANBAN_MASTERS[key], cur, fn); }
+    else {
+      // マスタに無い読み取り値（例:「A断面」）も、選択済みチップとして先頭に表示する
+      let list=KANBAN_MASTERS[key];
+      if(cur && !list.includes(cur)) list=[cur].concat(list);
+      node.classList.remove('editing'); node.innerHTML=chipHtml(list, cur, fn);
+    }
   };
   box('prefix','ed_prefix',_editPrefix,'pickPrefix');
   box('taishou2','ed_t2chips',_d('ed_t2').value.trim(),'pickT2');
