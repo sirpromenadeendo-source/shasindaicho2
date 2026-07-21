@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>写真台帳 照合アプリ（PC）</title>
+<title>手書き写し込み台帳アプリ（PC）</title>
 <script id="jsqr-src">
 /* jsQR 1.4.0 (inlined for offline / file:// use) */
 (function webpackUniversalModuleDefinition(root, factory) {
@@ -10290,7 +10290,7 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
 <body>
 
 <header>
-  <h1>🖥 写真台帳 照合アプリ <span class="ver">ver.1.03（PC用）</span></h1>
+  <h1>✍ 手書き写し込み台帳アプリ <span class="ver">ver.1.03（手書きOCR版・PC用）</span></h1>
   <div style="display:flex;gap:8px">
     <button class="btn btn-white" style="border:1px solid #ccc" id="btnSaveState" onclick="saveState()" disabled>💾 作業を保存</button>
     <button class="btn btn-white" style="border:1px solid #ccc" onclick="document.getElementById('stateInput').click()">📂 作業を復元</button>
@@ -10308,7 +10308,7 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
     <h2><span class="step">1</span>写真フォルダを取り込む</h2>
     <div class="drop" id="drop" onclick="pickImportFolder()">
       <div class="big">📂 フォルダを選択（またはここにドラッグ＆ドロップ）</div>
-      <div class="muted">一眼のオリジナルJPEGを推奨。QRの写った看板写真が区切りになります。</div>
+      <div class="muted">一眼のオリジナルJPEGを推奨。識別QRを貼った看板写真が区切りになり、手書き内容はOCRで読み取ります。</div>
     </div>
     <input type="file" id="folderInput" class="file-input" webkitdirectory directory multiple accept="image/*">
     <input type="file" id="fileInput" class="file-input" multiple accept="image/*">
@@ -10348,7 +10348,13 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
   <!-- STEP2 一覧 -->
   <div class="card" id="cardResult" style="display:none">
     <h2><span class="step">2</span>取り込み結果（ファイル名順・看板ごと）</h2>
-    <p class="muted" style="margin:-4px 0 10px">写真をドラッグして別グループへ移動できます（QR看板写真は区切りなので固定）。ドラッグが使えない場合は各写真下のメニューでも移動できます。</p>
+    <p class="muted" style="margin:-4px 0 10px">識別QRの付いた写真が「看板」＝区切りになります。看板の手書き内容は「看板を手書きOCR」で読み取れます。写真はドラッグで別グループへ移動できます（看板写真は固定）。</p>
+    <div style="margin:2px 0 10px">
+      <button class="btn btn-blue" id="btnOcrBoards" onclick="ocrAllBoards()">✍ 看板を手書きOCR</button>
+      <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;margin-left:8px" title="高精度OCR(手書き)の中継サーバー設定">
+        <button type="button" class="btn btn-gray" style="padding:3px 10px" onclick="setCloudOcrUrl()">中継URL設定</button>
+      </label>
+    </div>
     <div class="stats" id="stats"></div>
     <div id="newFilterBar" class="new-filter" style="display:none">
       <label><input type="checkbox" id="chkOnlyNew" onchange="toggleShowOnlyNew(this.checked)"> 追加された写真のグループだけを表示</label>
@@ -10537,6 +10543,22 @@ function parseKanbanQR(text){
   };
 }
 
+// ===== 手書き写し込み版：QRは「これは看板」という識別マーカーとして扱う =====
+// T1形式ならデータをそのまま使い、それ以外の任意QRでも「中身空の看板」として認識する。
+// 中身が空の看板は、あとで手書きOCR(ocrAllBoards)で埋める。
+function kanbanFromQR(text){
+  const k = parseKanbanQR(text);
+  if(k) return k;                          // T1形式（データ付き or 空マーカー）
+  if(text && String(text).trim()){         // T1以外の任意QR → 看板マーカー扱い
+    return { kenmei:'',kubun:'',t1:'',t2:'',joukyou:'',houkou:'',date:'',sha:'',shubetsu:'',biko:'' };
+  }
+  return null;                             // QR無し → 看板ではない
+}
+// その看板が「まだ中身が無い（＝手書きOCRで埋めるべき）」か
+function boardNeedsOCR(k){
+  return !!k && !(k.t1||k.t2||k.joukyou||k.houkou||k.kenmei||k.sha||k.biko||k.date);
+}
+
 // ===== 取り込み =====
 // フォルダハンドルを取得できる環境（Chrome/Edge + https）では showDirectoryPicker を使い、
 // そのハンドルを「写真振り分け」のコピー元として再利用する（フォルダを2回選ばせない）。
@@ -10688,7 +10710,7 @@ async function ingest(items){
     for(let i=0;i<total;i++){
       const rec=photos[freshStart+i], r=parallel[i]||{};
       if(r.err){ rec.decodeErr=true; lastErr='worker: '+r.err; }
-      else { rec.qr=r.qr||null; rec.kanban=parseKanbanQR(rec.qr); }
+      else { rec.qr=r.qr||null; rec.kanban=kanbanFromQR(rec.qr); }
     }
   }else{
   // ---- ② フォールバック：メインスレッドで直列 ----
@@ -10709,7 +10731,7 @@ async function ingest(items){
     // ② QR走査（サムネイルは取り込み時は作らず、表示時に遅延生成する）
     try{
       rec.qr=scanQR(bmp);
-      rec.kanban=parseKanbanQR(rec.qr);
+      rec.kanban=kanbanFromQR(rec.qr);
     }catch(e){ rec.scanErr=e.message; lastErr='scan: '+e.message; }
     try{ freeBitmap(bmp); }catch(e){}
     // UIをたまに解放（数千枚でも固まらないよう）
@@ -10734,6 +10756,7 @@ async function ingest(items){
     scrollToNew();
   }else{
     buildGroups();
+    maybeAutoOcrBoards();
   }
 }
 let _importCancel=false;
@@ -11347,8 +11370,8 @@ async function ocrPhotoCloud(bmp){
   // 既存フローと同じ看板オブジェクトの形に整える
   return {
     kenmei: j.kenmei||'', kubun:'', t1:(j.t1||'').toUpperCase().replace(/\s+/g,''),
-    t2:'', joukyou:j.joukyou||'', houkou:(j.houkou||'').replace(/から$/,''),
-    date:j.date||'', sha:j.sha||'', shubetsu:'', biko:''
+    t2:(j.t2||'').toUpperCase().replace(/\s+/g,''), joukyou:j.joukyou||'', houkou:(j.houkou||'').replace(/から$/,''),
+    date:j.date||'', sha:j.sha||'', shubetsu:'', biko:j.biko||''
   };
 }
 // ===== 高精度OCR 設定UI =====
@@ -11422,6 +11445,68 @@ function buildGroups(){
   }
   state.groups=groups;
   refreshAll();
+}
+
+// ===== 手書き写し込み版：識別QRで検出した看板を、手書きOCRで一括読み取り =====
+async function ocrAllBoards(){
+  const boards=state.groups.filter(g=>g.qrPhotoId && boardNeedsOCR(g.kanban));
+  if(!boards.length){ alert('OCR対象の看板写真がありません。\n（識別QRの付いた写真が看板として認識されます）'); return; }
+  // クラウド高精度OCRを使う（未設定なら中継URLを尋ねる）
+  if(!cloudCfg().url){ if(!setCloudOcrUrl()) return; }
+  setCloudCfg({on:true});
+  const chk=_d('chkCloudOCR'); if(chk) chk.checked=true;
+  const btn=_d('btnOcrBoards'); if(btn) btn.disabled=true;
+  _d('progressWrap').classList.add('show');
+  let done=0, ok=0;
+  for(const g of boards){
+    setProgress(done, boards.length, `看板を手書きOCR中… (${done+1}/${boards.length})`);
+    const p=photoById(g.qrPhotoId);
+    if(p){
+      try{
+        const bmp=await loadBitmap(await fileOf(p));
+        const r=await ocrPhoto(bmp);   // クラウド優先→失敗時Tesseract
+        try{ freeBitmap(bmp); }catch(e){}
+        if(r){
+          g.kanban=Object.assign(g.kanban||{}, {
+            kenmei:r.kenmei||g.kanban.kenmei||'', kubun:g.kanban.kubun||'',
+            t1:r.t1||'', t2:r.t2||'', joukyou:r.joukyou||'', houkou:r.houkou||'',
+            date:r.date||g.kanban.date||'', sha:r.sha||'', shubetsu:g.kanban.shubetsu||'',
+            biko:r.biko||''
+          });
+          p.kanban=g.kanban;
+          if(r.t1) ok++;
+        }
+      }catch(e){ console.warn('[ocrAllBoards]',e); }
+    }
+    done++;
+    await new Promise(r2=>setTimeout(r2,0));
+  }
+  // 件名・撮影者・撮影日は現場内で一定なことが多いので、前の看板から前送りで補完
+  let lk='', ls='', ld='';
+  for(const g of state.groups){
+    if(!g.qrPhotoId || !g.kanban) continue;
+    const k=g.kanban;
+    if(k.kenmei) lk=k.kenmei; else if(lk) k.kenmei=lk;
+    if(k.sha)    ls=k.sha;    else if(ls) k.sha=ls;
+    if(k.date)   ld=k.date;   else if(ld) k.date=ld;
+    const pp=photoById(g.qrPhotoId); if(pp) pp.kanban=k;
+  }
+  setProgress(boards.length, boards.length, '完了');
+  setTimeout(()=>_d('progressWrap').classList.remove('show'),1000);
+  if(btn) btn.disabled=false;
+  refreshAll();
+  alert(`${boards.length}件の看板を手書きOCRしました。\n　対象1を読み取れた: ${ok}件\n※OCRは誤読することがあります。各グループの「看板を編集」で必ず確認してください。`);
+}
+// 取り込み直後：識別QRの看板があり中継URL設定済みなら自動OCR。未設定なら案内だけ出す。
+function maybeAutoOcrBoards(){
+  const boards=state.groups.filter(g=>g.qrPhotoId && boardNeedsOCR(g.kanban));
+  if(!boards.length) return;
+  if(cloudCfg().url){
+    ocrAllBoards();
+  }else{
+    const si=_d('stateInfo');
+    if(si){ si.textContent='識別QRの看板を'+boards.length+'件検出しました。「看板を手書きOCR」を押すと内容を読み取ります（初回のみ中継URLの入力が必要）。'; si.style.display=''; }
+  }
 }
 
 // ===== 差分取り込み（追加写真だけ解析） =====
