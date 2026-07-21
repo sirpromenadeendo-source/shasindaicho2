@@ -10290,7 +10290,7 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
 <body>
 
 <header>
-  <h1>✍ 手書き写し込み台帳アプリ <span class="ver">ver.1.03（手書きOCR版・PC用）</span></h1>
+  <h1>✍ 手書き写し込み台帳アプリ <span class="ver" title="v1.10: 状況・方向を書いたまま読む／レート制限を見える化して中断／再試行強化／区分=調査・日付は月日対応">ver.1.10（手書きOCR版・PC用）</span></h1>
   <div style="display:flex;gap:8px">
     <button class="btn btn-white" style="border:1px solid #ccc" id="btnSaveState" onclick="saveState()" disabled>💾 作業を保存</button>
     <button class="btn btn-white" style="border:1px solid #ccc" onclick="document.getElementById('stateInput').click()">📂 作業を復元</button>
@@ -11358,7 +11358,9 @@ function normalizeDate(s){
   }
   return s;
 }
+let _cloudRate=false;   // 直近のクラウドOCRが無料枠のレート制限(429)で失敗したか
 async function ocrPhotoCloud(bmp){
+  _cloudRate=false;
   const cfg=cloudCfg();
   if(!cfg.url) return null;
   const b64=_bmpToJpeg(bmp,1600,0.85).split(',')[1];
@@ -11375,10 +11377,11 @@ async function ocrPhotoCloud(bmp){
   try{
     const res=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:ctrl.signal});
     clearTimeout(to);
+    if(res.status===429){ _cloudRate=true; console.warn('[cloudOCR] 429 レート制限（無料枠の上限）'); return null; }
     if(!res.ok) throw new Error('proxy '+res.status);
     j=await res.json();
   }catch(e){ clearTimeout(to); console.warn('[cloudOCR]',e); return null; }
-  if(!j || j.error){ console.warn('[cloudOCR]', j&&j.error); return null; }
+  if(!j || j.error){ if(String(j&&j.error).includes('429')) _cloudRate=true; console.warn('[cloudOCR]', j&&j.error); return null; }
   // 既存フローと同じ看板オブジェクトの形に整える
   return {
     kenmei: j.kenmei||'', kubun:'', t1:(j.t1||'').toUpperCase().replace(/\s+/g,''),
@@ -11469,7 +11472,7 @@ async function ocrAllBoards(){
   const chk=_d('chkCloudOCR'); if(chk) chk.checked=true;
   const btn=_d('btnOcrBoards'); if(btn){ btn.disabled=true; btn.textContent='⏳ 看板をOCR処理中…'; }
   _d('progressWrap').classList.add('show');
-  let done=0, ok=0, fail=0;
+  let done=0, ok=0, fail=0, rateHit=false;
   try{
   for(const g of boards){
     setProgress(done, boards.length, `看板を手書きOCR中… (${done+1}/${boards.length})`);
@@ -11480,10 +11483,11 @@ async function ocrAllBoards(){
       for(let attempt=0; attempt<3 && !r; attempt++){
         try{
           const bmp=await loadBitmap(await fileOf(p));
-          r=await ocrPhoto(bmp);   // クラウド優先→失敗時Tesseract
+          r=await ocrPhotoCloud(bmp);   // 手書きはクラウド専用（Tesseractの誤読に化けさせない）
           try{ freeBitmap(bmp); }catch(e){}
         }catch(e){ console.warn('[ocrAllBoards]',e); }
-        if(!r && attempt<2){   // レート制限・回線の一時失敗に備え、間を空けて再試行
+        if(_cloudRate) break;   // レート制限は待っても即時復帰しないので再試行しない
+        if(!r && attempt<2){   // 回線の一時失敗に備え、間を空けて再試行
           setProgress(done, boards.length, `混雑のため再試行中… (${done+1}/${boards.length})`);
           await new Promise(x=>setTimeout(x, attempt===0?1500:3500));
         }
@@ -11501,6 +11505,7 @@ async function ocrAllBoards(){
       if(r.t1) ok++;
     }else{ fail++; }
     done++;
+    if(_cloudRate){ rateHit=true; break; }   // 無料枠の上限：残りも同様に弾かれるため中断
     await new Promise(r2=>setTimeout(r2,0));
   }
   // 件名・撮影者・撮影日は現場内で一定なことが多いので、前の看板から前送りで補完
@@ -11519,9 +11524,16 @@ async function ocrAllBoards(){
     if(btn){ btn.disabled=false; btn.textContent='✍ 看板を手書きOCR'; }
   }
   refreshAll();
-  let msg=`${boards.length}件の看板を手書きOCRしました。\n　対象1を読み取れた: ${ok}件`;
-  if(fail) msg+=`\n　読み取れなかった: ${fail}件（「✍ 看板を手書きOCR」をもう一度押すと、未読の看板だけ再試行します）`;
-  msg+='\n※OCRは誤読することがあります。各グループの「看板を編集」で必ず確認してください。';
+  let msg;
+  if(rateHit){
+    msg=`無料枠のレート制限（429）に達したため、途中で中断しました。\n　処理できた: ${ok}件 ／ 未処理: ${boards.length-done}件`+
+        `\n\n数分〜しばらく時間をおいてから「✍ 看板を手書きOCR」を押すと、未読の看板だけ続きから再開します。`+
+        `\n頻発する場合は、中継サーバーの GEMINI_MODEL を gemini-2.5-flash-lite（1日の上限が多い）に変えると楽になります。`;
+  }else{
+    msg=`${boards.length}件の看板を手書きOCRしました。\n　対象1を読み取れた: ${ok}件`;
+    if(fail) msg+=`\n　読み取れなかった: ${fail}件（「✍ 看板を手書きOCR」をもう一度押すと、未読の看板だけ再試行します）`;
+    msg+='\n※OCRは誤読することがあります。各グループの「看板を編集」で必ず確認してください。';
+  }
   alert(msg);
 }
 // 取り込み直後：識別QRの看板があり中継URL設定済みなら自動OCR。未設定なら案内だけ出す。
