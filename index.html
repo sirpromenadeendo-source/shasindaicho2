@@ -10290,7 +10290,7 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
 <body>
 
 <header>
-  <h1>✍ 手書き写し込み台帳アプリ <span class="ver" title="v1.10: 状況・方向を書いたまま読む／レート制限を見える化して中断／再試行強化／区分=調査・日付は月日対応">ver.1.10（手書きOCR版・PC用）</span></h1>
+  <h1>✍ 手書き写し込み台帳アプリ <span class="ver" title="v1.11: 対象1/2は枠の位置で判定（カマド・Asec等の非コードもt2に入り、備考へ回らない）／コード形式のときだけ大文字化。v1.10: 状況・方向を書いたまま読む／レート制限の見える化・中断／再試行強化／区分=調査・日付は月日対応">ver.1.11（手書きOCR版・PC用）</span></h1>
   <div style="display:flex;gap:8px">
     <button class="btn btn-white" style="border:1px solid #ccc" id="btnSaveState" onclick="saveState()" disabled>💾 作業を保存</button>
     <button class="btn btn-white" style="border:1px solid #ccc" onclick="document.getElementById('stateInput').click()">📂 作業を復元</button>
@@ -11358,6 +11358,12 @@ function normalizeDate(s){
   }
   return s;
 }
+// 対象1/2：遺構番号（接頭辞＋番号 / P＋番号）のときだけ大文字化・空白除去。
+// 「カマド」「Asec」等の自由記入はそのままの表記で残す。
+function normTarget(v){
+  const t=(v||'').trim(), compact=t.replace(/\s+/g,'');
+  return /^[A-Za-z]{1,2}\d{1,3}$/.test(compact) ? compact.toUpperCase() : t;
+}
 let _cloudRate=false;   // 直近のクラウドOCRが無料枠のレート制限(429)で失敗したか
 async function ocrPhotoCloud(bmp){
   _cloudRate=false;
@@ -11384,8 +11390,8 @@ async function ocrPhotoCloud(bmp){
   if(!j || j.error){ if(String(j&&j.error).includes('429')) _cloudRate=true; console.warn('[cloudOCR]', j&&j.error); return null; }
   // 既存フローと同じ看板オブジェクトの形に整える
   return {
-    kenmei: j.kenmei||'', kubun:'', t1:(j.t1||'').toUpperCase().replace(/\s+/g,''),
-    t2:(j.t2||'').toUpperCase().replace(/\s+/g,''), joukyou:j.joukyou||'', houkou:(j.houkou||'').replace(/から$/,''),
+    kenmei: j.kenmei||'', kubun:'', t1:normTarget(j.t1), t2:normTarget(j.t2),
+    joukyou:j.joukyou||'', houkou:(j.houkou||'').replace(/から$/,''),
     date:normalizeDate(j.date||''), sha:j.sha||'', shubetsu:'', biko:j.biko||''
   };
 }
