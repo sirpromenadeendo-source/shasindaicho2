@@ -10290,7 +10290,7 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
 <body>
 
 <header>
-  <h1>✍ 手書き写し込み台帳アプリ <span class="ver" title="v1.11: 対象1/2は枠の位置で判定（カマド・Asec等の非コードもt2に入り、備考へ回らない）／コード形式のときだけ大文字化。v1.10: 状況・方向を書いたまま読む／レート制限の見える化・中断／再試行強化／区分=調査・日付は月日対応">ver.1.11（手書きOCR版・PC用）</span></h1>
+  <h1>✍ 手書き写し込み台帳アプリ <span class="ver" title="v1.12: 取り込み前(STEP1)に中継URL設定を追加・現在の設定状態を表示／URL入力で高精度OCRを自動ON。v1.11: 対象1/2は枠の位置で判定（カマド・Asec等の非コードもt2に入る）。v1.10: 状況・方向を書いたまま読む／レート制限の見える化・中断／区分=調査・日付は月日対応">ver.1.12（手書きOCR版・PC用）</span></h1>
   <div style="display:flex;gap:8px">
     <button class="btn btn-white" style="border:1px solid #ccc" id="btnSaveState" onclick="saveState()" disabled>💾 作業を保存</button>
     <button class="btn btn-white" style="border:1px solid #ccc" onclick="document.getElementById('stateInput').click()">📂 作業を復元</button>
@@ -10334,6 +10334,11 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
         </select>
       </label>
       <span class="muted" id="workerInfo"></span>
+    </div>
+    <div class="opts" style="border-top:1px dashed #ddd;margin-top:8px;padding-top:8px">
+      <span>高精度OCR（手書き）:</span>
+      <button class="btn btn-gray" onclick="setCloudOcrUrl()">中継URL設定</button>
+      <span class="muted" id="cloudUrlInfo"></span>
     </div>
     <div class="progress-wrap" id="progressWrap">
       <div style="display:flex;align-items:center;gap:10px">
@@ -11404,12 +11409,22 @@ function setCloudOcrUrl(){
   const cur=cloudCfg().url||'';
   const v=prompt('高精度OCRの中継サーバー(プロキシ)URLを入力してください。\n（Cloudflare Workers等のURL。APIキーはサーバー側に置くため、ここには不要です）', cur);
   if(v===null) return false;
-  setCloudCfg({url:v.trim()});
+  const url=v.trim();
+  setCloudCfg({url:url, on:!!url});   // URLを入れたら高精度OCRを自動でON
   const c=_d('chkCloudOCR'); if(c) c.checked=cloudEnabled();
-  return !!v.trim();
+  updateCloudUrlInfo();
+  return !!url;
+}
+// 現在の中継URLの状態を画面に表示（取り込み前でも分かるように）
+function updateCloudUrlInfo(){
+  const el=_d('cloudUrlInfo'); if(!el) return;
+  const u=cloudCfg().url||'';
+  el.textContent = u ? ('設定済み: '+u) : '未設定（クリックしてURLを入力）';
+  el.style.color = u ? '#137333' : '#c0392b';
 }
 function initCloudOcrUI(){
   const chk=_d('chkCloudOCR'); if(chk) chk.checked=cloudEnabled();
+  updateCloudUrlInfo();
 }
 if(document.readyState!=='loading') initCloudOcrUI();
 else window.addEventListener('DOMContentLoaded', initCloudOcrUI);
