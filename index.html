@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>手書き写し込み台帳アプリ（PC）</title>
+<title>写真台帳アプリ（統合版・PC）</title>
 <script id="jsqr-src">
 /* jsQR 1.4.0 (inlined for offline / file:// use) */
 (function webpackUniversalModuleDefinition(root, factory) {
@@ -10285,13 +10285,86 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
   .grp-photo{flex:0 0 auto;height:34%;min-height:180px;max-height:300px}
   .grp-fields{flex:1 1 auto;min-width:0;min-height:0}
 }
+/* ===== 統合版：モード選択オーバーレイ ＆ モードチップ ===== */
+.mode-overlay{position:fixed;inset:0;z-index:9999;background:rgba(20,28,40,.72);display:flex;align-items:center;justify-content:center;padding:20px}
+.mode-dialog{background:#fff;border-radius:16px;max-width:760px;width:100%;padding:28px 26px;box-shadow:0 18px 60px rgba(0,0,0,.35)}
+.mode-title{font-size:22px;font-weight:800;text-align:center;color:#1a2a3a}
+.mode-sub{font-size:13px;color:#667;text-align:center;margin:6px 0 20px}
+.mode-cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:640px){.mode-cards{grid-template-columns:1fr}}
+.mode-card{text-align:left;border:2px solid #e3e8ef;border-radius:14px;padding:18px 18px 16px;background:#fbfcfe;cursor:pointer;transition:.15s;font:inherit}
+.mode-card:hover{border-color:#3b82f6;background:#f2f7ff;transform:translateY(-2px);box-shadow:0 8px 20px rgba(59,130,246,.18)}
+.mode-card .mc-emoji{font-size:30px;line-height:1}
+.mode-card .mc-name{font-size:16px;font-weight:800;margin:8px 0 6px;color:#12324f}
+.mode-card .mc-desc{font-size:12.5px;color:#556;line-height:1.6}
+.mode-chip{display:inline-flex;align-items:center;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap}
+.mode-chip.chip-digital{background:#e6f0ff;color:#1d4ed8;border:1px solid #bcd3ff}
+.mode-chip.chip-writein{background:#fdeede;color:#b45309;border:1px solid #f6d5a8}
 </style>
 </head>
 <body>
 
+<!-- ===== 統合版：起動時モード選択オーバーレイ ===== -->
+<div id="modeOverlay" class="mode-overlay">
+  <div class="mode-dialog">
+    <div class="mode-title">📷 写真台帳アプリ（統合版）</div>
+    <div class="mode-sub">看板の方式を選んでください（あとでヘッダーの「🔀 モード変更」でいつでも切り替えられます）</div>
+    <div class="mode-cards">
+      <button class="mode-card" onclick="applyMode('digital')">
+        <div class="mc-emoji">🖥</div>
+        <div class="mc-name">デジタル看板モード</div>
+        <div class="mc-desc">スマホの「写しこみ看板」入力アプリで作った<b>QRを読み取って</b>台帳化します（従来の照合アプリと同じ動作）。</div>
+      </button>
+      <button class="mode-card" onclick="applyMode('writein')">
+        <div class="mc-emoji">✍</div>
+        <div class="mc-name">手書き看板モード</div>
+        <div class="mc-desc">識別QRを貼った看板の<b>手書き内容をOCR</b>（クラウド高精度／端末内）で読み取ります（従来の手書き写し込み台帳と同じ動作）。</div>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===== 統合版：起動時モード選択 =====
+   APP_MODE: 'digital'（デジタル看板＝照合方式） / 'writein'（手書き看板＝OCR方式）
+   起動時は必ずモード選択オーバーレイを表示（自動スキップしない）。 */
+var APP_MODE = null;
+var _MODE_KEY = 'sdc_app_mode';
+function _moEl(id){ return document.getElementById(id); }
+function openModePicker(){ var o=_moEl('modeOverlay'); if(o) o.style.display='flex'; }
+function applyMode(mode){
+  APP_MODE = mode;
+  try{ localStorage.setItem(_MODE_KEY, mode); }catch(e){}
+  var digital = (mode==='digital');
+  var t=_moEl('appTitle');
+  if(t) t.innerHTML = (digital?'🖥':'✍') + ' 写真台帳アプリ '
+    + '<span class="ver">'+(digital?'デジタル看板モード':'手書き看板モード')+'（統合版・PC用）</span>';
+  var chip=_moEl('modeChip');
+  if(chip){ chip.style.display=''; chip.textContent=(digital?'🖥 デジタル看板':'✍ 手書き看板');
+    chip.className='mode-chip '+(digital?'chip-digital':'chip-writein'); }
+  // 手書き専用UI（中継URL設定・看板を手書きOCR・高精度OCRトグル等）の表示切替
+  var els=document.querySelectorAll('.writein-only');
+  for(var i=0;i<els.length;i++){ els[i].style.display = digital?'none':''; }
+  // 説明文をモードに合わせる
+  var d1=_moEl('dropDesc');
+  if(d1) d1.textContent = digital
+    ? '一眼のオリジナルJPEGを推奨。QRの写った看板写真が区切りになります。'
+    : '一眼のオリジナルJPEGを推奨。識別QRを貼った看板写真が区切りになり、手書き内容はOCRで読み取ります。';
+  var d2=_moEl('resultDesc');
+  if(d2) d2.textContent = digital
+    ? '看板QRの付いた写真が「看板」＝区切りになります。写真はドラッグで別グループへ移動できます（看板QR写真は固定）。'
+    : '識別QRの付いた写真が「看板」＝区切りになります。看板の手書き内容は「看板を手書きOCR」で読み取れます。写真はドラッグで別グループへ移動できます（看板写真は固定）。';
+  // クラウドOCR関連UIの状態を再同期（digitalでは cloudEnabled()=false なので必ずOFF表示）
+  try{ if(typeof initCloudOcrUI==='function') initCloudOcrUI(); }catch(e){}
+  var o=_moEl('modeOverlay'); if(o) o.style.display='none';
+}
+</script>
+
 <header>
-  <h1>✍ 手書き写し込み台帳アプリ <span class="ver" title="v1.14: OCR実行状況パネルを追加（看板ごとの進行状況をリアルタイム表示＋処理時間・成功/失敗件数の集計）。v1.13: STEP2の重複URL設定ボタン削除。v1.12: STEP1に中継URL設定を追加。v1.11: 対象1/2は枠の位置で判定。v1.10: 状況・方向を書いたまま読む／レート制限の見える化">ver.1.14（手書きOCR版・PC用）</span></h1>
-  <div style="display:flex;gap:8px">
+  <h1 id="appTitle">📷 写真台帳アプリ <span class="ver">ver.2.0（統合版・PC用）</span></h1>
+  <div style="display:flex;gap:8px;align-items:center">
+    <span id="modeChip" class="mode-chip" style="display:none"></span>
+    <button class="btn btn-white" style="border:1px solid #ccc" onclick="openModePicker()">🔀 モード変更</button>
     <button class="btn btn-white" style="border:1px solid #ccc" id="btnSaveState" onclick="saveState()" disabled>💾 作業を保存</button>
     <button class="btn btn-white" style="border:1px solid #ccc" onclick="document.getElementById('stateInput').click()">📂 作業を復元</button>
     <input type="file" id="stateInput" class="file-input" accept=".json" onchange="loadState(event)">
@@ -10308,7 +10381,7 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
     <h2><span class="step">1</span>写真フォルダを取り込む</h2>
     <div class="drop" id="drop" onclick="pickImportFolder()">
       <div class="big">📂 フォルダを選択（またはここにドラッグ＆ドロップ）</div>
-      <div class="muted">一眼のオリジナルJPEGを推奨。識別QRを貼った看板写真が区切りになり、手書き内容はOCRで読み取ります。</div>
+      <div class="muted" id="dropDesc">一眼のオリジナルJPEGを推奨。識別QRを貼った看板写真が区切りになり、手書き内容はOCRで読み取ります。</div>
     </div>
     <input type="file" id="folderInput" class="file-input" webkitdirectory directory multiple accept="image/*">
     <input type="file" id="fileInput" class="file-input" multiple accept="image/*">
@@ -10335,7 +10408,7 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
       </label>
       <span class="muted" id="workerInfo"></span>
     </div>
-    <div class="opts" style="border-top:1px dashed #ddd;margin-top:8px;padding-top:8px">
+    <div class="opts writein-only" style="border-top:1px dashed #ddd;margin-top:8px;padding-top:8px">
       <span>高精度OCR（手書き）:</span>
       <button class="btn btn-gray" onclick="setCloudOcrUrl()">中継URL設定</button>
       <span class="muted" id="cloudUrlInfo"></span>
@@ -10353,11 +10426,11 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
   <!-- STEP2 一覧 -->
   <div class="card" id="cardResult" style="display:none">
     <h2><span class="step">2</span>取り込み結果（ファイル名順・看板ごと）</h2>
-    <p class="muted" style="margin:-4px 0 10px">識別QRの付いた写真が「看板」＝区切りになります。看板の手書き内容は「看板を手書きOCR」で読み取れます。写真はドラッグで別グループへ移動できます（看板写真は固定）。</p>
-    <div style="margin:2px 0 10px">
+    <p class="muted" id="resultDesc" style="margin:-4px 0 10px">識別QRの付いた写真が「看板」＝区切りになります。看板の手書き内容は「看板を手書きOCR」で読み取れます。写真はドラッグで別グループへ移動できます（看板写真は固定）。</p>
+    <div class="writein-only" style="margin:2px 0 10px">
       <button class="btn btn-blue" id="btnOcrBoards" onclick="ocrAllBoards()">✍ 看板を手書きOCR</button>
     </div>
-    <div id="ocrStatus" style="display:none;margin:0 0 12px;font-size:13px;border:1px solid #e6e6e6;border-radius:8px;padding:8px 10px;max-height:280px;overflow:auto;background:#fafafa"></div>
+    <div id="ocrStatus" class="writein-only" style="display:none;margin:0 0 12px;font-size:13px;border:1px solid #e6e6e6;border-radius:8px;padding:8px 10px;max-height:280px;overflow:auto;background:#fafafa"></div>
     <div class="stats" id="stats"></div>
     <div id="newFilterBar" class="new-filter" style="display:none">
       <label><input type="checkbox" id="chkOnlyNew" onchange="toggleShowOnlyNew(this.checked)"> 追加された写真のグループだけを表示</label>
@@ -10447,7 +10520,7 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
   <span class="muted" style="font-size:12px">選択した写真のどれかをドラッグすると、まとめて別グループへ移動できます</span>
   <button class="btn btn-green" id="btnRescan" onclick="rescanSelected()">選択した写真を再スキャン</button>
   <button class="btn btn-blue" id="btnOCR" onclick="ocrSelected()">OCRでグループ作成</button>
-  <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap" title="ONにすると、まずクラウドの高精度OCR(手書き対応)で読み取り、失敗時のみ端末内Tesseractに切り替えます">
+  <label class="writein-only" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap" title="ONにすると、まずクラウドの高精度OCR(手書き対応)で読み取り、失敗時のみ端末内Tesseractに切り替えます">
     <input type="checkbox" id="chkCloudOCR" onchange="onToggleCloudOCR(this.checked)">高精度OCR(手書き)
     <button type="button" class="btn btn-gray" style="padding:2px 8px" onclick="setCloudOcrUrl()">中継URL</button>
   </label>
@@ -10550,6 +10623,10 @@ function parseKanbanQR(text){
 // T1形式ならデータをそのまま使い、それ以外の任意QRでも「中身空の看板」として認識する。
 // 中身が空の看板は、あとで手書きOCR(ocrAllBoards)で埋める。
 function kanbanFromQR(text){
+  // 【デジタル看板モード】＝従来の照合アプリと同じ。T1形式のデータQRだけを看板として読む。
+  // 中身は入れない（OCR補完もしない）。T1以外のQRは看板扱いしない。
+  if(APP_MODE==='digital') return parseKanbanQR(text);
+  // 【手書き看板モード】＝従来の手書き写し込み台帳と同じ。
   const k = parseKanbanQR(text);
   if(k){ if(!k.kubun) k.kubun='調査'; return k; }   // T1形式（データ付き or 空マーカー）。区分は既定「調査」
   if(text && String(text).trim()){                  // T1以外の任意QR → 看板マーカー扱い
@@ -11338,7 +11415,7 @@ const OCR_CLOUD_KEY='sdc_ocr_cloud'; // localStorage: {url, on}
 function cloudCfg(){
   try{ return JSON.parse(localStorage.getItem(OCR_CLOUD_KEY)||'{}'); }catch(e){ return {}; }
 }
-function cloudEnabled(){ const c=cloudCfg(); return !!(c.on && c.url); }
+function cloudEnabled(){ if(APP_MODE!=='writein') return false; const c=cloudCfg(); return !!(c.on && c.url); }
 function setCloudCfg(patch){
   const c=Object.assign(cloudCfg(), patch);
   try{ localStorage.setItem(OCR_CLOUD_KEY, JSON.stringify(c)); }catch(e){}
@@ -11483,6 +11560,7 @@ function buildGroups(){
 
 // ===== 手書き写し込み版：識別QRで検出した看板を、手書きOCRで一括読み取り =====
 async function ocrAllBoards(){
+  if(APP_MODE!=='writein'){ alert('手書きOCRは「手書き看板モード」で使えます。ヘッダーの「🔀 モード変更」で切り替えてください。'); return; }
   const boards=state.groups.filter(g=>g.qrPhotoId && boardNeedsOCR(g.kanban));
   if(!boards.length){ alert('OCR対象の看板写真がありません。\n（識別QRの付いた写真が看板として認識されます）'); return; }
   // クラウド高精度OCRを使う（未設定なら中継URLを尋ねる）
@@ -11578,6 +11656,7 @@ async function ocrAllBoards(){
 }
 // 取り込み直後：識別QRの看板があり中継URL設定済みなら自動OCR。未設定なら案内だけ出す。
 function maybeAutoOcrBoards(){
+  if(APP_MODE!=='writein') return;   // デジタル看板モードでは自動OCRしない（照合方式）
   const boards=state.groups.filter(g=>g.qrPhotoId && boardNeedsOCR(g.kanban));
   if(!boards.length) return;
   if(cloudCfg().url){
