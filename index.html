@@ -10307,7 +10307,7 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
 <!-- ===== 統合版：起動時モード選択オーバーレイ ===== -->
 <div id="modeOverlay" class="mode-overlay">
   <div class="mode-dialog">
-    <div class="mode-title">📷 写真台帳アプリ（統合版）</div>
+    <div class="mode-title">📷 写真台帳アプリ（統合版） <span style="font-size:13px;font-weight:700;color:#8a93a6;letter-spacing:.02em">ver.2.1</span></div>
     <div class="mode-sub">看板の方式を選んでください（あとでヘッダーの「🔀 モード変更」でいつでも切り替えられます）</div>
     <div class="mode-cards">
       <button class="mode-card" onclick="applyMode('digital')">
@@ -10338,7 +10338,7 @@ function applyMode(mode){
   var digital = (mode==='digital');
   var t=_moEl('appTitle');
   if(t) t.innerHTML = (digital?'🖥':'✍') + ' 写真台帳アプリ '
-    + '<span class="ver">'+(digital?'デジタル看板モード':'手書き看板モード')+'（統合版・PC用）</span>';
+    + '<span class="ver">'+(digital?'デジタル看板モード':'手書き看板モード')+'（統合版 ver.2.1・PC用）</span>';
   var chip=_moEl('modeChip');
   if(chip){ chip.style.display=''; chip.textContent=(digital?'🖥 デジタル看板':'✍ 手書き看板');
     chip.className='mode-chip '+(digital?'chip-digital':'chip-writein'); }
@@ -10361,7 +10361,7 @@ function applyMode(mode){
 </script>
 
 <header>
-  <h1 id="appTitle">📷 写真台帳アプリ <span class="ver">ver.2.0（統合版・PC用）</span></h1>
+  <h1 id="appTitle">📷 写真台帳アプリ <span class="ver">ver.2.1（統合版・PC用）</span></h1>
   <div style="display:flex;gap:8px;align-items:center">
     <span id="modeChip" class="mode-chip" style="display:none"></span>
     <button class="btn btn-white" style="border:1px solid #ccc" onclick="openModePicker()">🔀 モード変更</button>
@@ -10408,8 +10408,8 @@ function applyMode(mode){
       </label>
       <span class="muted" id="workerInfo"></span>
     </div>
-    <div class="opts writein-only" style="border-top:1px dashed #ddd;margin-top:8px;padding-top:8px">
-      <span>高精度OCR（手書き）:</span>
+    <div class="opts" style="border-top:1px dashed #ddd;margin-top:8px;padding-top:8px">
+      <span>高精度OCR（クラウド）:</span>
       <button class="btn btn-gray" onclick="setCloudOcrUrl()">中継URL設定</button>
       <span class="muted" id="cloudUrlInfo"></span>
     </div>
@@ -10520,8 +10520,8 @@ function applyMode(mode){
   <span class="muted" style="font-size:12px">選択した写真のどれかをドラッグすると、まとめて別グループへ移動できます</span>
   <button class="btn btn-green" id="btnRescan" onclick="rescanSelected()">選択した写真を再スキャン</button>
   <button class="btn btn-blue" id="btnOCR" onclick="ocrSelected()">OCRでグループ作成</button>
-  <label class="writein-only" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap" title="ONにすると、まずクラウドの高精度OCR(手書き対応)で読み取り、失敗時のみ端末内Tesseractに切り替えます">
-    <input type="checkbox" id="chkCloudOCR" onchange="onToggleCloudOCR(this.checked)">高精度OCR(手書き)
+  <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap" title="ONにすると、まずクラウドの高精度OCR(手書き対応)で読み取り、失敗時のみ端末内Tesseractに切り替えます。デジタル看板モードでも、QRが読めない写真の読み取りに使えます。">
+    <input type="checkbox" id="chkCloudOCR" onchange="onToggleCloudOCR(this.checked)">高精度OCR(クラウド)
     <button type="button" class="btn btn-gray" style="padding:2px 8px" onclick="setCloudOcrUrl()">中継URL</button>
   </label>
   <button class="btn btn-gray" onclick="clearSelection()">選択解除</button>
@@ -11415,7 +11415,7 @@ const OCR_CLOUD_KEY='sdc_ocr_cloud'; // localStorage: {url, on}
 function cloudCfg(){
   try{ return JSON.parse(localStorage.getItem(OCR_CLOUD_KEY)||'{}'); }catch(e){ return {}; }
 }
-function cloudEnabled(){ if(APP_MODE!=='writein') return false; const c=cloudCfg(); return !!(c.on && c.url); }
+function cloudEnabled(){ const c=cloudCfg(); return !!(c.on && c.url); }  // 高精度クラウドOCRは両モードで利用可
 function setCloudCfg(patch){
   const c=Object.assign(cloudCfg(), patch);
   try{ localStorage.setItem(OCR_CLOUD_KEY, JSON.stringify(c)); }catch(e){}
@@ -11569,22 +11569,14 @@ async function ocrAllBoards(){
   const chk=_d('chkCloudOCR'); if(chk) chk.checked=true;
   const btn=_d('btnOcrBoards'); if(btn){ btn.disabled=true; btn.textContent='⏳ 看板をOCR処理中…'; }
   _d('progressWrap').classList.add('show');
-  // 実行状況パネル（看板ごとの進行状況）を用意
+  // 実行状況はシンプルに（〇/〇枚完了 ＋ 下の進捗バー）
   const sp=_d('ocrStatus');
-  const t0=performance.now();
-  if(sp){
-    sp.style.display='';
-    sp.innerHTML='<div id="ocrStHead" style="font-weight:700;margin-bottom:5px">OCR実行状況：'+boards.length+'件を処理します</div>'
-      + boards.map((g,i)=>{ const p=photoById(g.qrPhotoId); const nm=p?p.name:('看板'+(i+1));
-          return '<div id="ocrln'+i+'" style="padding:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span class="ocrst" style="color:#888">・待機中</span> '+_esc(nm)+'</div>'; }).join('');
-  }
-  const setLine=(i,txt,col)=>{ const l=_d('ocrln'+i); if(l){ const s=l.querySelector('.ocrst'); if(s){ s.textContent=txt; s.style.color=col; } } };
+  if(sp){ sp.style.display=''; sp.style.whiteSpace='normal'; sp.style.fontWeight='700'; sp.textContent='OCR中… 0/'+boards.length+'枚完了'; }
+  const setStat=(txt)=>{ if(sp) sp.textContent=txt; };
   let done=0, ok=0, fail=0, rateHit=false;
   try{
   for(const g of boards){
-    const idx=done;
-    setLine(idx, '⏳ 処理中…', '#b26a00');
-    setProgress(done, boards.length, `看板を手書きOCR中… (${done+1}/${boards.length})`);
+    setProgress(done, boards.length, `看板をOCR中… (${done+1}/${boards.length})`);
     const p=photoById(g.qrPhotoId);
     let r=null;
     if(p){
@@ -11612,12 +11604,11 @@ async function ocrAllBoards(){
       });
       p.kanban=g.kanban;
       if(r.t1) ok++;
-      setLine(idx, r.t1 ? ('✓ 読取OK（対象1: '+r.t1+'）') : '✓ 読取OK（対象1は空欄）', '#137333');
     }else{
       fail++;
-      setLine(idx, _cloudRate ? '✗ レート制限で中断' : '✗ 読み取れず', '#c0392b');
     }
     done++;
+    setStat('OCR中… '+done+'/'+boards.length+'枚完了');
     if(_cloudRate){ rateHit=true; break; }   // 無料枠の上限：残りも同様に弾かれるため中断
     await new Promise(r2=>setTimeout(r2,0));
   }
@@ -11636,11 +11627,8 @@ async function ocrAllBoards(){
     setTimeout(()=>_d('progressWrap').classList.remove('show'),1000);
     if(btn){ btn.disabled=false; btn.textContent='✍ 看板を手書きOCR'; }
   }
-  // 集計（処理時間・件数）を実行状況パネルの見出しに反映
-  const secs=(performance.now()-t0)/1000;
-  const avg=done?secs/done:0;
-  const head=_d('ocrStHead');
-  if(head) head.textContent = `OCR実行状況：成功 ${ok}件 ／ 失敗 ${fail}件${rateHit?'（レート制限で中断）':''} ／ 合計 ${secs.toFixed(1)}秒（1件平均 ${avg.toFixed(1)}秒）`;
+  // 実行状況は1行のサマリに（〇/〇枚完了）
+  setStat(`完了：${boards.length}枚中 ${done}枚処理・${ok}件で対象1を読取${fail?`／${fail}件は未読`:''}${rateHit?'（レート制限で中断）':''}`);
   refreshAll();
   let msg;
   if(rateHit){
@@ -12161,7 +12149,7 @@ function buildLedger(){
       const p=photoById(pid); if(!p)return;
       seq++;
       if(p.mark==='写込') ledgerRows.push(rowOf(k,p,'写込',''));
-      else ledgerRows.push(rowOf(k,p,'', k?k.shubetsu:''));
+      else ledgerRows.push(rowOf(k,p,'', (k&&k.shubetsu)?k.shubetsu:'調査'));  // 種別2は空なら既定「調査」
     });
   });
   renderLedger();
