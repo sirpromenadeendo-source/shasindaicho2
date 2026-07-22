@@ -10290,7 +10290,7 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
 <body>
 
 <header>
-  <h1>✍ 手書き写し込み台帳アプリ <span class="ver" title="v1.12: 取り込み前(STEP1)に中継URL設定を追加・現在の設定状態を表示／URL入力で高精度OCRを自動ON。v1.11: 対象1/2は枠の位置で判定（カマド・Asec等の非コードもt2に入る）。v1.10: 状況・方向を書いたまま読む／レート制限の見える化・中断／区分=調査・日付は月日対応">ver.1.12（手書きOCR版・PC用）</span></h1>
+  <h1>✍ 手書き写し込み台帳アプリ <span class="ver" title="v1.14: OCR実行状況パネルを追加（看板ごとの進行状況をリアルタイム表示＋処理時間・成功/失敗件数の集計）。v1.13: STEP2の重複URL設定ボタン削除。v1.12: STEP1に中継URL設定を追加。v1.11: 対象1/2は枠の位置で判定。v1.10: 状況・方向を書いたまま読む／レート制限の見える化">ver.1.14（手書きOCR版・PC用）</span></h1>
   <div style="display:flex;gap:8px">
     <button class="btn btn-white" style="border:1px solid #ccc" id="btnSaveState" onclick="saveState()" disabled>💾 作業を保存</button>
     <button class="btn btn-white" style="border:1px solid #ccc" onclick="document.getElementById('stateInput').click()">📂 作業を復元</button>
@@ -10356,10 +10356,8 @@ table.ledger td.auto{color:#1a6bb5;font-weight:600}
     <p class="muted" style="margin:-4px 0 10px">識別QRの付いた写真が「看板」＝区切りになります。看板の手書き内容は「看板を手書きOCR」で読み取れます。写真はドラッグで別グループへ移動できます（看板写真は固定）。</p>
     <div style="margin:2px 0 10px">
       <button class="btn btn-blue" id="btnOcrBoards" onclick="ocrAllBoards()">✍ 看板を手書きOCR</button>
-      <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;margin-left:8px" title="高精度OCR(手書き)の中継サーバー設定">
-        <button type="button" class="btn btn-gray" style="padding:3px 10px" onclick="setCloudOcrUrl()">中継URL設定</button>
-      </label>
     </div>
+    <div id="ocrStatus" style="display:none;margin:0 0 12px;font-size:13px;border:1px solid #e6e6e6;border-radius:8px;padding:8px 10px;max-height:280px;overflow:auto;background:#fafafa"></div>
     <div class="stats" id="stats"></div>
     <div id="newFilterBar" class="new-filter" style="display:none">
       <label><input type="checkbox" id="chkOnlyNew" onchange="toggleShowOnlyNew(this.checked)"> 追加された写真のグループだけを表示</label>
@@ -11493,9 +11491,21 @@ async function ocrAllBoards(){
   const chk=_d('chkCloudOCR'); if(chk) chk.checked=true;
   const btn=_d('btnOcrBoards'); if(btn){ btn.disabled=true; btn.textContent='⏳ 看板をOCR処理中…'; }
   _d('progressWrap').classList.add('show');
+  // 実行状況パネル（看板ごとの進行状況）を用意
+  const sp=_d('ocrStatus');
+  const t0=performance.now();
+  if(sp){
+    sp.style.display='';
+    sp.innerHTML='<div id="ocrStHead" style="font-weight:700;margin-bottom:5px">OCR実行状況：'+boards.length+'件を処理します</div>'
+      + boards.map((g,i)=>{ const p=photoById(g.qrPhotoId); const nm=p?p.name:('看板'+(i+1));
+          return '<div id="ocrln'+i+'" style="padding:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span class="ocrst" style="color:#888">・待機中</span> '+_esc(nm)+'</div>'; }).join('');
+  }
+  const setLine=(i,txt,col)=>{ const l=_d('ocrln'+i); if(l){ const s=l.querySelector('.ocrst'); if(s){ s.textContent=txt; s.style.color=col; } } };
   let done=0, ok=0, fail=0, rateHit=false;
   try{
   for(const g of boards){
+    const idx=done;
+    setLine(idx, '⏳ 処理中…', '#b26a00');
     setProgress(done, boards.length, `看板を手書きOCR中… (${done+1}/${boards.length})`);
     const p=photoById(g.qrPhotoId);
     let r=null;
@@ -11524,7 +11534,11 @@ async function ocrAllBoards(){
       });
       p.kanban=g.kanban;
       if(r.t1) ok++;
-    }else{ fail++; }
+      setLine(idx, r.t1 ? ('✓ 読取OK（対象1: '+r.t1+'）') : '✓ 読取OK（対象1は空欄）', '#137333');
+    }else{
+      fail++;
+      setLine(idx, _cloudRate ? '✗ レート制限で中断' : '✗ 読み取れず', '#c0392b');
+    }
     done++;
     if(_cloudRate){ rateHit=true; break; }   // 無料枠の上限：残りも同様に弾かれるため中断
     await new Promise(r2=>setTimeout(r2,0));
@@ -11544,6 +11558,11 @@ async function ocrAllBoards(){
     setTimeout(()=>_d('progressWrap').classList.remove('show'),1000);
     if(btn){ btn.disabled=false; btn.textContent='✍ 看板を手書きOCR'; }
   }
+  // 集計（処理時間・件数）を実行状況パネルの見出しに反映
+  const secs=(performance.now()-t0)/1000;
+  const avg=done?secs/done:0;
+  const head=_d('ocrStHead');
+  if(head) head.textContent = `OCR実行状況：成功 ${ok}件 ／ 失敗 ${fail}件${rateHit?'（レート制限で中断）':''} ／ 合計 ${secs.toFixed(1)}秒（1件平均 ${avg.toFixed(1)}秒）`;
   refreshAll();
   let msg;
   if(rateHit){
